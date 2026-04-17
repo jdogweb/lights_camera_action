@@ -1,0 +1,7 @@
+flask
+python-dotenv
+google-auth
+google-api-python-client
+picamera2
+RPi.GPIO
+Pillow

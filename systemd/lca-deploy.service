@@ -1,0 +1,13 @@
+[Unit]
+Description=lights_camera_action auto-deploy (git pull + restart)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jdogweb
+WorkingDirectory=/home/jdogweb/lights_camera_action
+ExecStart=/home/jdogweb/lights_camera_action/deploy.sh
+# Don't spam the journal with "up to date" exits
+StandardOutput=journal
+StandardError=journal

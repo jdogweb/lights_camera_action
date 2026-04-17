@@ -1,0 +1,13 @@
+[Unit]
+Description=Run lca-deploy every 60 seconds
+Requires=lca-deploy.service
+
+[Timer]
+# Fire 30s after boot (let network settle), then every 60s after the last run.
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=lca-deploy.service
+
+[Install]
+WantedBy=timers.target

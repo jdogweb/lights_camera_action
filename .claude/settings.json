@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/jules/whatsapp-perplexity-test/**)"
+    ]
+  }
+}
