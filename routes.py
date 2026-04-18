@@ -258,3 +258,11 @@ def _video360_continuous(sku, fps, duration, cw):
 @bp.route("/status")
 def status():
     return jsonify({"status": "ok"})
+
+
+@bp.route("/release", methods=["POST"])
+def release():
+    """Manually release the motor (disable driver)."""
+    from motor import release_motor
+    release_motor()
+    return jsonify({"status": "released"})

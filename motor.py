@@ -106,6 +106,11 @@ def _check_idle_disable():
         _disable_driver()
 
 
+def release_motor():
+    """Manually release the motor (disable driver)."""
+    _disable_driver()
+
+
 def home():
     """Reset logical position to 0 without physically moving."""
     global _current_step
