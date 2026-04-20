@@ -14,8 +14,9 @@ if MOCK:
 else:
     import RPi.GPIO as GPIO
 
+
 from config import (
-    STEP_PIN, DIR_PIN, ENABLE_PIN,
+    STEP_PIN, DIR_PIN, ENABLE_PIN, SLP_PIN,
     STEPS_PER_REV, MICROSTEP_MULT,
     STEP_DELAY_S, SETTLE_DELAY_S,
 )
@@ -25,14 +26,18 @@ _last_activity = 0  # Timestamp of last motor activity
 IDLE_TIMEOUT_S = 30  # Disable motor after 30s of inactivity
 
 
+
 def _enable_driver():
-    """Enable the motor driver."""
+    """Enable the motor driver and wake from sleep."""
     GPIO.output(ENABLE_PIN, GPIO.LOW)
+    GPIO.output(SLP_PIN, GPIO.HIGH)  # Wake up driver
+
 
 
 def _disable_driver():
-    """Disable the motor driver to prevent heating."""
+    """Disable the motor driver and put to sleep."""
     GPIO.output(ENABLE_PIN, GPIO.HIGH)
+    GPIO.output(SLP_PIN, GPIO.LOW)  # Sleep driver
 
 
 def _update_activity():
@@ -42,12 +47,14 @@ def _update_activity():
     _enable_driver()
 
 
+
 def setup():
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(STEP_PIN, GPIO.OUT)
     GPIO.setup(DIR_PIN, GPIO.OUT)
     GPIO.setup(ENABLE_PIN, GPIO.OUT)
-    _update_activity()
+    GPIO.setup(SLP_PIN, GPIO.OUT)
+    _disable_driver()  # Start in sleep mode
 
 
 def rotate_to(target_degrees: float, settle_s: float | None = None):

@@ -14,7 +14,9 @@ DRIVE_CLIENT = build("drive", "v3", credentials=CREDS)
 # GPIO pin config (BCM numbering)
 STEP_PIN   = int(os.getenv("STEP_PIN", "17"))
 DIR_PIN    = int(os.getenv("DIR_PIN", "27"))
+
 ENABLE_PIN = int(os.getenv("ENABLE_PIN", "22"))
+SLP_PIN    = int(os.getenv("SLP_PIN", "23"))
 
 # Motor config
 STEPS_PER_REV  = int(os.getenv("STEPS_PER_REV", "200"))    # 1.8° motor = 200 full steps/rev
