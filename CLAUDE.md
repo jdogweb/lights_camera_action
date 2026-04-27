@@ -126,7 +126,26 @@ Tail the deploy log with `journalctl -u lca-deploy.service -f`.
 Note: if `requirements.txt` changes, `deploy.sh` runs `pip install --user`. If you use a venv, edit `deploy.sh` to point at the venv's pip.
 
 ## Tunnel
-The Pi is exposed via Cloudflare Tunnel (`cloudflared tunnel --url http://localhost:5002`) so the watchtrader Railway app can reach it. The tunnel URL changes on each restart — update `RPI_URL` in Railway env vars when it does.
+The Pi is exposed via Cloudflare Tunnel (`cloudflared tunnel --url http://localhost:5002`) so the watchtrader Railway app can reach it.
+
+The tunnel runs as a systemd service (`cloudflared-quick.service`, see
+`systemd/cloudflared-quick.service`). It auto-starts on Pi boot and
+auto-restarts on crash. **Caveat: every restart gives a new
+`*.trycloudflare.com` URL** because we're using the free quick-tunnel
+tier. To recover after a Pi reboot:
+
+```bash
+# On the Pi: pull the URL out of the journal
+sudo journalctl -u cloudflared-quick.service --no-pager \
+  | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1
+
+# On your Mac: push it into Railway
+cd /tmp/railway-rpi-update && railway variables \
+  --set "RPI_URL=https://...new-url...trycloudflare.com"
+```
+
+For a stable URL across reboots, switch to a named/persistent Cloudflare tunnel
+(requires a free Cloudflare account: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/tunnel-guide/local/).
 
 ## Google Drive
 Uses the same service account as the watchtrader app (`service_account.json`). Uploads go to the folder set by `DRIVE_ID_FOLDER_ID` in `.env`.
