@@ -1,0 +1,18 @@
+[Unit]
+Description=Cloudflare Quick Tunnel for lights_camera_action (port 5002)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/tunnel-guide/local/
+After=network-online.target lca.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jdogweb
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://localhost:5002 --no-autoupdate
+# cloudflared logs the URL to stderr; capture it in journalctl
+StandardOutput=journal
+StandardError=journal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
