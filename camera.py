@@ -141,32 +141,36 @@ else:
     def preview_jpeg(focus: bool = False, zoom: int = 1) -> bytes:
         """Return a JPEG-encoded preview frame.
 
-        focus: overlay a focus score (variance of Laplacian on centre crop).
+        focus: overlay a focus score (variance of Laplacian on centre crop)
+               and a green reticle. Score is greyscale (Y plane only) for
+               speed. Pair with zoom>1 for fine focusing.
         zoom:  integer >=1, crops the centre 1/zoom × 1/zoom and upscales
-               back to the preview size — useful for nailing fine focus.
+               back to the preview size.
+
+        Without focus mode, returns a full-colour frame from the lores YUV
+        stream so the watchtrader Camera Setup page sees a normal preview.
         """
         import numpy as np
         cam = _get_camera()
-        # `lores` YUV420 is small + fast; we only need the Y plane for both
-        # display (greyscale is fine for focusing) and for the focus metric.
-        yuv = cam.capture_array("lores")
-        h_full = _PREVIEW_SIZE[1]
-        y = yuv[:h_full, :_PREVIEW_SIZE[0]]  # luma plane
-
-        if zoom > 1:
-            ch, cw = y.shape
-            zh, zw = ch // zoom, cw // zoom
-            cy, cx = ch // 2, cw // 2
-            y = y[cy - zh // 2:cy + zh // 2, cx - zw // 2:cx + zw // 2]
-
-        img = Image.fromarray(y, mode="L").convert("RGB")
-        if zoom > 1:
-            img = img.resize(_PREVIEW_SIZE, Image.BILINEAR)
+        pw, ph = _PREVIEW_SIZE
 
         if focus:
+            # Fast path: just need the Y plane for sharpness measurement
+            # and a B/W display.
+            yuv = cam.capture_array("lores")
+            y = yuv[:ph, :pw]
+
+            if zoom > 1:
+                zh, zw = ph // zoom, pw // zoom
+                cy, cx = ph // 2, pw // 2
+                y = y[cy - zh // 2:cy + zh // 2, cx - zw // 2:cx + zw // 2]
+
+            img = Image.fromarray(y, mode="L").convert("RGB")
+            if zoom > 1:
+                img = img.resize(_PREVIEW_SIZE, Image.BILINEAR)
+
             score = _focus_score(np.asarray(img.convert("L")))
             draw = ImageDraw.Draw(img)
-            # Centre reticle (1/2 × 1/2 of frame, matching the score ROI)
             w, h = img.size
             s = min(w, h) // 4
             draw.rectangle(
@@ -174,9 +178,39 @@ else:
                 outline=(0, 255, 0), width=2,
             )
             label = f"focus={score:7.1f}  zoom={zoom}x"
-            # Background box for legibility
             draw.rectangle([8, 8, 8 + 9 * len(label), 32], fill=(0, 0, 0))
             draw.text((12, 10), label, fill=(0, 255, 0))
+        else:
+            # Colour preview: convert YUV420 → RGB. picamera2 already
+            # gives us a correctly-sized array we can hand to PIL.
+            rgb = cam.capture_array("lores")
+            # `lores` in YUV420 is returned as a (ph*1.5, pw) array; ask
+            # picamera2 for an RGB-formatted view by going through the
+            # `main` mode if we ever need it. For now decode YUV → RGB
+            # ourselves so we don't reconfigure the camera per-frame.
+            yuv = rgb
+            y = yuv[:ph, :pw].astype("float32")
+            uv_h = ph // 2
+            u = yuv[ph:ph + uv_h, :pw // 2].astype("float32")
+            v = yuv[ph + uv_h:ph + 2 * uv_h, :pw // 2].astype("float32")
+            # Upsample U and V to full resolution (nearest is fine here).
+            u = np.repeat(np.repeat(u, 2, axis=0), 2, axis=1)
+            v = np.repeat(np.repeat(v, 2, axis=0), 2, axis=1)
+            # BT.601 YUV → RGB (approx; close enough for a preview).
+            r = y + 1.402 * (v - 128)
+            g = y - 0.344136 * (u - 128) - 0.714136 * (v - 128)
+            b = y + 1.772 * (u - 128)
+            rgb_arr = np.stack([r, g, b], axis=-1)
+            np.clip(rgb_arr, 0, 255, out=rgb_arr)
+            img = Image.fromarray(rgb_arr.astype("uint8"))
+
+            if zoom > 1:
+                w, h = img.size
+                zh, zw = h // zoom, w // zoom
+                cy, cx = h // 2, w // 2
+                img = img.crop(
+                    (cx - zw // 2, cy - zh // 2, cx + zw // 2, cy + zh // 2)
+                ).resize(_PREVIEW_SIZE, Image.BILINEAR)
 
         out = io.BytesIO()
         img.save(out, format="JPEG", quality=80)
