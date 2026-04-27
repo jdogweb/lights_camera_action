@@ -13,7 +13,7 @@ Flask app running on a Raspberry Pi 4 that controls an automated watch photograp
 - Raspberry Pi 4 4GB — hostname `lac`, user `jdogweb`
 - NEMA 17 stepper motor (1.8°/step, 200 steps/rev)
 - DRV8825 driver — STEP=GPIO17, DIR=GPIO27, EN=GPIO22 (BCM)
-- IMX477 12.3MP camera (not yet connected — using USB camera in the meantime)
+- IMX477 12.3MP camera (CSI, connected via ribbon)
 - GT2 belt drive, 200mm lazy Susan bearing, acrylic turntable plate
 - 40cm LED lightbox
 
@@ -47,6 +47,38 @@ sudo systemctl start lca    # start
 sudo systemctl restart lca  # restart
 sudo systemctl status lca   # check logs
 ```
+
+## Pi camera (IMX477) bringup test
+After (re)wiring the CSI ribbon, run this on the Pi to verify the camera
+stack end-to-end before flipping the app over to it:
+
+```bash
+cd ~/lights_camera_action
+
+# 1. OS-level smoke test (5s preview to /tmp/cam.jpg)
+rpicam-still -o /tmp/cam.jpg --timeout 2000 || libcamera-still -o /tmp/cam.jpg --timeout 2000
+
+# 2. Python / picamera2 path used by the app (still + 2s video)
+python3 test_camera.py
+
+# 3. Flip the app over to the Pi camera and restart
+sed -i 's/^CAMERA_TYPE=.*/CAMERA_TYPE=picamera2/' .env
+sudo systemctl restart lca
+sudo systemctl status lca --no-pager
+
+# 4. Hit the live endpoints (from the Pi or another machine on the LAN)
+curl -s http://localhost:5002/status
+curl -s -X POST http://localhost:5002/capture \
+     -H 'Content-Type: application/json' \
+     -d '{"filename":"camera_bringup_test.jpg"}'
+# and visit  http://lac.local:5002/preview  in a browser for the MJPEG stream
+```
+
+If `test_camera.py` fails at the import step:
+`sudo apt install -y python3-picamera2 --no-install-recommends`.
+If it fails at "detect cameras", reseat the CSI ribbon (blue tab toward the
+ethernet jack on the Pi end) and check `dmesg | grep -i imx477`.
+
 
 ## Running locally (Mac, no hardware)
 ```bash
