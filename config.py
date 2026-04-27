@@ -23,3 +23,4 @@ STEPS_PER_REV  = int(os.getenv("STEPS_PER_REV", "200"))    # 1.8° motor = 200 f
 MICROSTEP_MULT = int(os.getenv("MICROSTEP_MULT", "8"))      # DRV8825 1/8 microstepping
 STEP_DELAY_S   = float(os.getenv("STEP_DELAY_S", "0.001"))  # Delay between pulses
 SETTLE_DELAY_S = float(os.getenv("SETTLE_DELAY_S", "0.3"))  # Settle time after rotate
+GEAR_RATIO     = float(os.getenv("GEAR_RATIO", "3.0"))      # Motor turns GEAR_RATIO times per 1 turntable turn
