@@ -5,7 +5,7 @@ import tempfile
 import threading
 import time
 from flask import Blueprint, request, jsonify, Response
-from motor import rotate_to, rotate_continuous, home
+from motor import rotate_to, rotate_continuous, rotate_relative, home
 from camera import capture, preview_jpeg, record_video
 from drive import upload_file
 from video import frames_to_video
@@ -103,6 +103,14 @@ def rotate():
     return jsonify({"angle": angle})
 
 
+@bp.route("/rotate/relative", methods=["POST"])
+def rotate_rel():
+    """Rotate by relative amount. Body: {"degrees": -360}"""
+    degrees = request.get_json(force=True).get("degrees", 0)
+    rotate_relative(float(degrees))
+    return jsonify({"degrees": degrees})
+
+
 @bp.route("/capture", methods=["POST"])
 def single_capture():
     """Capture one photo and upload to Drive. Body: {"filename": "test.jpg"}"""
@@ -121,10 +129,26 @@ def single_capture():
 
 @bp.route("/preview")
 def preview():
-    """Stream live MJPEG from the camera."""
+    """Stream live MJPEG from the camera.
+
+    Query params (picamera2 backend only — silently ignored for usb/mock):
+      focus=1   overlay a variance-of-Laplacian focus score + centre reticle
+      zoom=N    integer >=1, crops the centre 1/N × 1/N and upscales
+    """
+    focus = request.args.get("focus", "0") in ("1", "true", "yes")
+    try:
+        zoom = max(1, int(request.args.get("zoom", "1")))
+    except ValueError:
+        zoom = 1
+
     def generate():
         while True:
-            jpeg = preview_jpeg()
+            try:
+                # Newer picamera2 preview_jpeg accepts focus/zoom kwargs.
+                jpeg = preview_jpeg(focus=focus, zoom=zoom)
+            except TypeError:
+                # USB / mock backends don't take kwargs.
+                jpeg = preview_jpeg()
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame",
                     headers={"Cache-Control": "no-cache"})

@@ -86,15 +86,25 @@ elif CAMERA_TYPE == "usb":
 
 else:
     from picamera2 import Picamera2
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
 
     _camera = None
+    # Preview stream is much smaller than the 12MP main stream so the MJPEG
+    # feed can run at >10 fps — essential for manual focusing.
+    _PREVIEW_SIZE = (1280, 720)
 
     def _get_camera() -> "Picamera2":
         global _camera
         if _camera is None:
             _camera = Picamera2()
-            cfg = _camera.create_still_configuration(main={"size": (4056, 3040)})
+            # Configure a high-res `main` stream for stills *and* a low-res
+            # `lores` stream for the live preview. The ISP gives us both in
+            # parallel for free, so preview frames cost almost nothing.
+            cfg = _camera.create_still_configuration(
+                main={"size": (4056, 3040)},
+                lores={"size": _PREVIEW_SIZE, "format": "YUV420"},
+                display="lores",
+            )
             _camera.configure(cfg)
             _camera.start()
             time.sleep(2)  # Allow AEC/AWB to settle
@@ -103,12 +113,65 @@ else:
     def capture(path: str):
         _get_camera().capture_file(path)
 
-    def preview_jpeg() -> bytes:
+    def _focus_score(gray) -> float:
+        """Variance-of-Laplacian focus measure on a centre crop.
+        Higher = sharper. Compare scores while turning the focus ring.
+        """
+        import numpy as np
+        h, w = gray.shape
+        cy, cx = h // 2, w // 2
+        s = min(h, w) // 4  # centre crop = 1/2 width × 1/2 height of frame
+        roi = gray[cy - s:cy + s, cx - s:cx + s].astype("float32")
+        # Quick Laplacian via 4-neighbour finite difference (no scipy needed).
+        lap = (
+            -4.0 * roi[1:-1, 1:-1]
+            + roi[:-2, 1:-1] + roi[2:, 1:-1]
+            + roi[1:-1, :-2] + roi[1:-1, 2:]
+        )
+        return float(lap.var())
+
+    def preview_jpeg(focus: bool = False, zoom: int = 1) -> bytes:
+        """Return a JPEG-encoded preview frame.
+
+        focus: overlay a focus score (variance of Laplacian on centre crop).
+        zoom:  integer >=1, crops the centre 1/zoom × 1/zoom and upscales
+               back to the preview size — useful for nailing fine focus.
+        """
+        import numpy as np
         cam = _get_camera()
-        buf = cam.capture_array("main")
-        img = Image.fromarray(buf)
+        # `lores` YUV420 is small + fast; we only need the Y plane for both
+        # display (greyscale is fine for focusing) and for the focus metric.
+        yuv = cam.capture_array("lores")
+        h_full = _PREVIEW_SIZE[1]
+        y = yuv[:h_full, :_PREVIEW_SIZE[0]]  # luma plane
+
+        if zoom > 1:
+            ch, cw = y.shape
+            zh, zw = ch // zoom, cw // zoom
+            cy, cx = ch // 2, cw // 2
+            y = y[cy - zh // 2:cy + zh // 2, cx - zw // 2:cx + zw // 2]
+
+        img = Image.fromarray(y, mode="L").convert("RGB")
+        if zoom > 1:
+            img = img.resize(_PREVIEW_SIZE, Image.BILINEAR)
+
+        if focus:
+            score = _focus_score(np.asarray(img.convert("L")))
+            draw = ImageDraw.Draw(img)
+            # Centre reticle (1/2 × 1/2 of frame, matching the score ROI)
+            w, h = img.size
+            s = min(w, h) // 4
+            draw.rectangle(
+                [w // 2 - s, h // 2 - s, w // 2 + s, h // 2 + s],
+                outline=(0, 255, 0), width=2,
+            )
+            label = f"focus={score:7.1f}  zoom={zoom}x"
+            # Background box for legibility
+            draw.rectangle([8, 8, 8 + 9 * len(label), 32], fill=(0, 0, 0))
+            draw.text((12, 10), label, fill=(0, 255, 0))
+
         out = io.BytesIO()
-        img.save(out, format="JPEG", quality=85)
+        img.save(out, format="JPEG", quality=80)
         return out.getvalue()
 
     def record_video(path: str, duration_s: float, fps: int):
