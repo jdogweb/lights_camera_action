@@ -90,6 +90,7 @@ else:
     from PIL import Image, ImageDraw, ImageFont
 
     _camera = None
+    _LORES_FORMAT = None  # set in _get_camera() to "RGB888" or "YUV420"
     # Preview stream is much smaller than the 12MP main stream so the MJPEG
     # feed can run at >10 fps — essential for manual focusing.
     _PREVIEW_SIZE = (1280, 720)
@@ -101,19 +102,33 @@ else:
     _TRANSFORM = Transform(hflip=1, vflip=1) if _FLIP else Transform()
 
     def _get_camera() -> "Picamera2":
-        global _camera
+        global _camera, _LORES_FORMAT
         if _camera is None:
             _camera = Picamera2()
             # Configure a high-res `main` stream for stills *and* a low-res
             # `lores` stream for the live preview. The ISP gives us both in
             # parallel for free, so preview frames cost almost nothing.
-            cfg = _camera.create_still_configuration(
-                main={"size": (4056, 3040)},
-                lores={"size": _PREVIEW_SIZE, "format": "YUV420"},
-                display="lores",
-                transform=_TRANSFORM,
-            )
-            _camera.configure(cfg)
+            # We try RGB888 lores first (cheap colour preview); on the Pi 4
+            # vc4 pipeline this isn't always supported, so fall back to
+            # YUV420 + manual conversion.
+            try:
+                cfg = _camera.create_still_configuration(
+                    main={"size": (4056, 3040)},
+                    lores={"size": _PREVIEW_SIZE, "format": "RGB888"},
+                    display="lores",
+                    transform=_TRANSFORM,
+                )
+                _camera.configure(cfg)
+                _LORES_FORMAT = "RGB888"
+            except Exception:
+                cfg = _camera.create_still_configuration(
+                    main={"size": (4056, 3040)},
+                    lores={"size": _PREVIEW_SIZE, "format": "YUV420"},
+                    display="lores",
+                    transform=_TRANSFORM,
+                )
+                _camera.configure(cfg)
+                _LORES_FORMAT = "YUV420"
             _camera.start()
             time.sleep(2)  # Allow AEC/AWB to settle
         return _camera
@@ -181,28 +196,22 @@ else:
             draw.rectangle([8, 8, 8 + 9 * len(label), 32], fill=(0, 0, 0))
             draw.text((12, 10), label, fill=(0, 255, 0))
         else:
-            # Colour preview: convert YUV420 → RGB. picamera2 already
-            # gives us a correctly-sized array we can hand to PIL.
-            rgb = cam.capture_array("lores")
-            # `lores` in YUV420 is returned as a (ph*1.5, pw) array; ask
-            # picamera2 for an RGB-formatted view by going through the
-            # `main` mode if we ever need it. For now decode YUV → RGB
-            # ourselves so we don't reconfigure the camera per-frame.
-            yuv = rgb
-            y = yuv[:ph, :pw].astype("float32")
-            uv_h = ph // 2
-            u = yuv[ph:ph + uv_h, :pw // 2].astype("float32")
-            v = yuv[ph + uv_h:ph + 2 * uv_h, :pw // 2].astype("float32")
-            # Upsample U and V to full resolution (nearest is fine here).
-            u = np.repeat(np.repeat(u, 2, axis=0), 2, axis=1)
-            v = np.repeat(np.repeat(v, 2, axis=0), 2, axis=1)
-            # BT.601 YUV → RGB (approx; close enough for a preview).
-            r = y + 1.402 * (v - 128)
-            g = y - 0.344136 * (u - 128) - 0.714136 * (v - 128)
-            b = y + 1.772 * (u - 128)
-            rgb_arr = np.stack([r, g, b], axis=-1)
-            np.clip(rgb_arr, 0, 255, out=rgb_arr)
-            img = Image.fromarray(rgb_arr.astype("uint8"))
+            # Colour preview path.
+            arr = cam.capture_array("lores")
+            if _LORES_FORMAT == "RGB888":
+                # picamera2 hands us an HxWx3 array, but Pi 4 vc4 actually
+                # delivers BGR data under the "RGB888" name (long-standing
+                # libcamera quirk). Swap channels for correct colour.
+                img = Image.fromarray(arr[..., ::-1])
+            else:
+                # YUV420 fallback. picamera2 returns a (ph*3/2, pw) array
+                # for YUV420 — luma followed by interleaved chroma. Use
+                # OpenCV's well-tested converter rather than rolling our
+                # own (numpy slicing varies subtly between picamera2
+                # versions and broke once already).
+                import cv2
+                rgb = cv2.cvtColor(arr, cv2.COLOR_YUV2RGB_I420)
+                img = Image.fromarray(rgb)
 
             if zoom > 1:
                 w, h = img.size
