@@ -137,11 +137,18 @@ DRIVE_ID_FOLDER_ID=
 STEP_PIN=17
 DIR_PIN=27
 ENABLE_PIN=22
+SLP_PIN=23
 STEPS_PER_REV=200
 MICROSTEP_MULT=8
-STEP_DELAY_S=0.001
+STEP_DELAY_S=0.003     # half-period of step pulse; 0.001 is fast/jittery, 0.003 is the bringup default
 SETTLE_DELAY_S=0.3
-CAMERA_TYPE=usb        # or picamera2
+GEAR_RATIO=1.538       # measured 2026-04-27: commanded 360°, platter travelled ~234° at GR=1, so 360/234 ≈ 1.538
+CAMERA_TYPE=picamera2  # or usb
 MOCK_GPIO=0            # set to 1 on Mac
 USB_CAMERA_INDEX=0
 ```
+
+## Calibration notes
+- The motor↔platter mechanical reduction was measured by commanding `POST /rotate/relative {"degrees": 360}` with `GEAR_RATIO=1.0` and observing how far a tape mark on the platter actually travelled. Result: ~234°, giving a corrected ratio of `360/234 ≈ 1.538`.
+- If you re-tension the belt or swap a pulley, repeat that test and update `GEAR_RATIO` in `.env`.
+- `STEP_DELAY_S` controls the half-period of each microstep pulse. Smaller = faster but at some point the motor will start losing steps under load. `0.003` is comfortable for a loaded turntable.
