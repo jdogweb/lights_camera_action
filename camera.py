@@ -86,12 +86,19 @@ elif CAMERA_TYPE == "usb":
 
 else:
     from picamera2 import Picamera2
+    from libcamera import Transform
     from PIL import Image, ImageDraw, ImageFont
 
     _camera = None
     # Preview stream is much smaller than the 12MP main stream so the MJPEG
     # feed can run at >10 fps — essential for manual focusing.
     _PREVIEW_SIZE = (1280, 720)
+
+    # Camera mount orientation. Set CAMERA_FLIP=1 in .env if the camera is
+    # mounted upside down — applied as an ISP transform so it costs nothing
+    # at runtime and affects preview, stills, and video uniformly.
+    _FLIP = os.getenv("CAMERA_FLIP", "0") == "1"
+    _TRANSFORM = Transform(hflip=1, vflip=1) if _FLIP else Transform()
 
     def _get_camera() -> "Picamera2":
         global _camera
@@ -104,6 +111,7 @@ else:
                 main={"size": (4056, 3040)},
                 lores={"size": _PREVIEW_SIZE, "format": "YUV420"},
                 display="lores",
+                transform=_TRANSFORM,
             )
             _camera.configure(cfg)
             _camera.start()
@@ -185,10 +193,11 @@ else:
         from picamera2.outputs import FfmpegOutput
 
         cam = _get_camera()
-        # Switch to a video-friendly size/framerate
+        # Switch to a video-friendly size/framerate (same flip transform).
         video_cfg = cam.create_video_configuration(
             main={"size": (1920, 1080)},
             controls={"FrameRate": fps},
+            transform=_TRANSFORM,
         )
         cam.stop()
         cam.configure(video_cfg)
@@ -201,7 +210,12 @@ else:
             cam.stop_recording()
         finally:
             # Restore the still configuration so capture() still works.
-            still_cfg = cam.create_still_configuration(main={"size": (4056, 3040)})
+            still_cfg = cam.create_still_configuration(
+                main={"size": (4056, 3040)},
+                lores={"size": _PREVIEW_SIZE, "format": "YUV420"},
+                display="lores",
+                transform=_TRANSFORM,
+            )
             cam.stop()
             cam.configure(still_cfg)
             cam.start()

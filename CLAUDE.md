@@ -163,6 +163,7 @@ STEP_DELAY_S=0.003     # half-period of step pulse; 0.001 is fast/jittery, 0.003
 SETTLE_DELAY_S=0.3
 GEAR_RATIO=1.538       # measured 2026-04-27: commanded 360°, platter travelled ~234° at GR=1, so 360/234 ≈ 1.538
 CAMERA_TYPE=picamera2  # or usb
+CAMERA_FLIP=1          # 1 if camera mounted upside down (applies to preview, stills, video)
 MOCK_GPIO=0            # set to 1 on Mac
 USB_CAMERA_INDEX=0
 ```
